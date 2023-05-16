@@ -6,7 +6,7 @@ const Web3 = require("web3")
 const ethers = require("ethers");
 const app = express();
 require('dotenv').config()
-const PORT = process.env.PORT || 3888;
+const PORT = process.env.PORT;
 
 const environment = "prod"
 var wss;
@@ -14,7 +14,8 @@ environment === "test" ? wss = process.env.WSS_BSC_TEST : wss = process.env.WSS_
 
 const web3 = new Web3(wss)
 
-const PAN_ROUTER_ADDRESS = "0x10ED43C718714eb63d5aA57B78B54704E256024E"; //contract of pancake router
+
+const PAN_ROUTER_ADDRESS = process.env.PAN_ROUTER_ADDRESS; //contract of pancake router
 const BNB_CONTRACT = "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c" //Contract on WBNB coin
 const swapAbi = swapABI
 const abi = aBI
@@ -140,23 +141,24 @@ const sellToken = async (account, tokenContract, gasLimit, gasPrice, value = 99)
   }
 }
 var init = async function () {
-  console.log("wss", process.env.WSS_BSC_TEST)
-  var customWsProvider = new ethers.providers.JsonRpcProvider(wss);
+  var customWsProvider = new ethers.providers.WebSocketProvider(wss);
   const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, customWsProvider);
   const signer = wallet.connect(customWsProvider)
+
   const iface = new ethers.utils.Interface(['function    swapExactETHForTokens(uint256 amountOutMin, address[] path, address to, uint256 deadline)',
     'function swapETHForExactTokens(uint amountOut, address[] calldata path, address to, uint deadline)',
     'function swapExactETHForTokensSupportingFeeOnTransferTokens(uint amountOutMin,address[] calldata path,address to,uint deadline)'])
 
-  customWsProvider.on("pending", (tx) => {
+  customWsProvider.on("pending", async (tx) => {
     customWsProvider.getTransaction(tx).then(async function (transaction) {
-      // now we will only listen for pending transaction on pancakesswap factory
-      if (transaction && transaction.to === PAN_ROUTER_ADDRESS) {
+      // now we will only listen for pending transaction on pancakesswap factory (commented out)
+      //if (transaction && transaction.to === PAN_ROUTER_ADDRESS) {
         const value = web3.utils.fromWei(transaction.value.toString())
         const gasPrice = web3.utils.fromWei(transaction.gasPrice.toString())
         const gasLimit = web3.utils.fromWei(transaction.gasLimit.toString())
+        console.log(`Reading Transaction:${transaction.hash} Worth: ${value}`)
         // for example we will be only showing transaction that are higher than 30 bnb
-        if (value > 10) {
+        if (value > 100) {
           console.log("value : ", value);
           console.log("gasPrice : ", gasPrice);
           console.log("gasLimit : ", gasLimit);
@@ -186,14 +188,14 @@ var init = async function () {
               const sellGasPrice = calculate_gas_price("sell", transaction.gasPrice)
               // after calculating the gas price we buy the token
               console.log("going to buy");
-              //await buyToken(signer, tokenAddress, transaction.gasLimit, buyGasPrice)
+              await buyToken(signer, tokenAddress, transaction.gasLimit, buyGasPrice)
               // after buying the token we sell it 
               console.log("going to sell the token");
-              //await sellToken(signer, tokenAddress, transaction.gasLimit, sellGasPrice)
+              await sellToken(signer, tokenAddress, transaction.gasLimit, sellGasPrice)
             }
           }
         }
-      }
+      //}
     });
   });
 
