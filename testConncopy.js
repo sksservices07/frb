@@ -1,6 +1,6 @@
 const express = require("express");
-const swapABI = require("./abi/swapAbi.json");
-const aBI = require("./abi/routerAbi.json");
+const swapABI = require("./abi/swapABI.json");
+const aBI = require("./abi/routerABI.json");
 const http = require('http');
 const Web3 = require("web3")
 const ethers = require("ethers");
@@ -25,13 +25,15 @@ const abi = aBI
 //function to calculate the gas price
 function calculate_gas_price(action, amount) {
     if (action === "buy") {
-        return ethers.utils.formatUnits(amount.add(1), 'gwei')
+        //return ethers.utils.formatUnits(amount.add(1), 'gwei')
+        return amount.add(1)
     } else {
-        return ethers.utils.formatUnits(amount.sub(1), 'gwei')
+        return amount.sub(1)
+        //return ethers.utils.formatUnits(amount.sub(1), 'gwei')
     }
 }
 //We are using pancakeswap router to buy/sell
-function router(account) {
+function router(provider) {
     return new ethers.Contract(
         PAN_ROUTER_ADDRESS,
         // [
@@ -42,7 +44,7 @@ function router(account) {
         //     'function swapExactTokensForETH (uint amountOutMin, address[] calldata path, address to, uint deadline) external payable'
         // ],
         abi,
-        account
+       provider 
     );
 }
 function erc20(account, tokenAddress) {
@@ -71,50 +73,67 @@ function erc20(account, tokenAddress) {
         account
     );
 }
-const buyToken = async (provider, account, tokenContract, gasLimit, gasPrices) => {
+const buyToken = async (provider, signer, tokenContract, gasLimit, gasPrices) => {
+    // REMOVE THIS LOG
+    console.log("Buy triggerd, ", signer.address)
     //buyAmount how much are we going to pay for example 0.1 BNB
-    const buyAmount = 0.2
+    const buyAmount = 10
 
     /*Slippage refers to the difference between the expected price 
     of a trade and the price at which the trade is executed */
-    const slippage = 0
+    const slippage = 25
+
+    console.log("*******")
 
     //amountOutMin: How many token we are going to receive
     let amountOutMin = 0;
     const amountIn = ethers.utils.parseUnits(buyAmount.toString(), 'ether');
-    const gasPrice = ethers.utils.parseUnits(gasPrices.toString(), 'ether');
+    // const gasPrice = ethers.utils.parseUnits(gasPrices < 1 ? gasPrices.toString() : "0.9", 'ether');
 
     var amounts;
     // if (parseInt(slippage) !== 0) {
-
-    amounts = await router(account).getAmountsOut(amountIn, [BNB_CONTRACT, tokenContract]);
-    console.log(`amounts: ${amounts}`)
+    amounts = await router(provider).getAmountsOut(amountIn, [BNB_CONTRACT, tokenContract]);
+    console.log(`in buy amounts: ${amounts}`)
     amountOutMin = amounts[1].sub(amounts[1].div(100).mul(`${slippage}`));
-    console.log(`amountOutMin: ${amountOutMin}`)
+
+    const amountOut1 = (Math.round(Number(amounts[1]) * 0.95)).toString()
+    // amountOutMin input for swapping functions such as SwapExactETHForTokens
+    const testAmountOutMin = ethers.utils.parseUnits(amountOut1, 'wei') 
+
+    // console.log(`amountOutMin: ${amountOutMin}`)
+    console.log(`amountOutMin: ${testAmountOutMin}`)
     console.log(`amountIn: ${amountIn}`)
     console.log(`gasLimit: ${gasLimit}`)
-    console.log(`gasPrice: ${gasPrice}`)
+    console.log(`bnb contract: ${BNB_CONTRACT}`)
+    console.log(`token contract: ${tokenContract}`)
+    console.log(`date: ${Date.now() + 1000 * 60 * 10}`)
+    console.log(`gasPrice: ${gasPrices}`)
+    console.log("actual price ", ethers.utils.formatEther(gasPrices))
+    console.log("*******")
+    let tx;
     //}
     try {
         console.log(`Tx Starts`)
-        const tx = await router(account).swapExactETHForTokensSupportingFeeOnTransferTokens(
+        const tx_inner = await router(provider).connect(signer).swapExactETHForTokensSupportingFeeOnTransferTokens(
 
-            amountOutMin,
+            // amountOutMin,
+            testAmountOutMin,
             [BNB_CONTRACT, tokenContract],
-            account.address,
+            signer.address,
             (Date.now() + 1000 * 60 * 10),
             {
-                'value': amountIn,
-                'gasLimit': gasLimit,
-                'gasPrice': gasPrice,
+                value: amountIn,
+                gasLimit: gasLimit,
+                gasPrice: gasPrices,
             }
         );
-        console.log(`outPuttx: ${tx}`)
+        tx = tx_inner;
+        console.log(`outPuttx: ${tx_inner}`)
 
     } catch (e) {
         console.log("txError", e)
     }
-    console.log(`outPuttx1: ${tx}`)
+    console.log(`outPuttx1: ${tx.hash}`)
     const receipts = await provider
         .waitForTransaction(tx.hash, 1, 150000)
         .then(() => {
@@ -132,6 +151,8 @@ const buyToken = async (provider, account, tokenContract, gasLimit, gasPrices) =
     }
 }
 const sellToken = async (customWsProvider, account, tokenContract, gasLimit, gasPrice, value = 99) => {
+    // REMOVE THIS LOG
+    console.log("Sell triggerd")
     const sellTokenContract = new ethers.Contract(tokenContract, swapAbi, account)
     const contract = new ethers.Contract(PAN_ROUTER_ADDRESS, abi, account)
     const accountAddress = account.address
@@ -172,12 +193,17 @@ const sellToken = async (customWsProvider, account, tokenContract, gasLimit, gas
 var init = async function () {
 
     var customWsProvider = new ethers.providers.WebSocketProvider(wss);
+    let customRpcProvider = new ethers.providers.JsonRpcProvider(
+    //   "https://bsc-dataseed.binance.org"
+      "https://ultra-dawn-voice.bsc.discover.quiknode.pro/d1776b968ecc188ac3854ea469105045f4d9fe49"
+    );
 
     //const url = process.env.RPC_URL
     //const customWsProvider = new ethers.providers.JsonRpcProvider(wss);
     const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, customWsProvider);
+    const rpcWallet = new ethers.Wallet(process.env.PRIVATE_KEY, customRpcProvider);
     const signer = wallet.connect(customWsProvider)
-    console.log("signer", signer)
+    console.log("using rpc signer: ", rpcWallet.address)
 
     const iface = new ethers.utils.Interface(['function    swapExactETHForTokens(uint256 amountOutMin, address[] path, address to, uint256 deadline)',
         'function swapETHForExactTokens(uint256 amountOut, address[] path, address to, uint256 deadline)',
@@ -196,7 +222,7 @@ var init = async function () {
                 const gasLimit = web3.utils.fromWei(transaction.gasLimit.toString())
                 console.log(`Transaction:${transaction.hash} Worth: ${value}`)
                 // for example we will be only showing transaction that are higher than 30 bnb
-                if (value > 100) {
+                if (value > 0.01) {
                     console.log("value : ", value);
                     console.log("gasPrice : ", gasPrice);
                     console.log("gasLimit : ", gasLimit);
@@ -232,11 +258,18 @@ var init = async function () {
                             const buyGasPrice = calculate_gas_price("buy", transaction.gasPrice)
                             const sellGasPrice = calculate_gas_price("sell", transaction.gasPrice)
                             // after calculating the gas price we buy the token
-                            console.log("going to buy");
-                            await buyToken(customWsProvider, signer, tokenAddress, transaction.gasLimit, buyGasPrice)
+                            console.log("going to buy: price: ", buyGasPrice);
+                            // handle decimal point
+                            const tokenContract = erc20(customRpcProvider, tokenAddress)
+                            const tokenDecimalTx = await tokenContract.decimals()
+                            const tokenDecimal = ethers.utils.formatEther(tokenDecimalTx)
+                            if(parseInt(tokenDecimal) !== 18) return
+                            
+                            // handle buy & sell
+                            await buyToken(customRpcProvider, rpcWallet, tokenAddress, transaction.gasLimit, buyGasPrice)
                             // after buying the token we sell it 
                             console.log("going to sell the token");
-                            await sellToken(customWsProvider, signer, tokenAddress, transaction.gasLimit, sellGasPrice)
+                           await sellToken(customWsProvider, signer, tokenAddress, transaction.gasLimit, sellGasPrice)
                         }
                     }
                 }
