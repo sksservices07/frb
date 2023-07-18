@@ -325,10 +325,9 @@ var init = async function () {
                             }
 
                             // console.log("LOG: ", tokenStack.includes(tokenAddress))
-                            if(tokenStack.includes(tokenAddress)) return;
+                            if(tokenStack.length > 0) return;
 
                             tokenStack.push(tokenAddress)
-                            
 
                             console.log("going to buy, ", tokenAddress);
                             let res = await buyToken(customRpcProvider, rpcWallet, tokenAddress, transaction.gasLimit, buyGasPrice, parseInt(tokenDecimal))
