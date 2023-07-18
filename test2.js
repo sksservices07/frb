@@ -74,11 +74,9 @@ function erc20(account, tokenAddress) {
     );
 }
 
-let buyFlag = false;
-let sellFlag = false;
+// let sellFlag = false;
 
 const buyToken = async (provider, signer, tokenContract, gasLimit, gasPrices, tokenDecimal) => {
-    buyFlag = true
     // REMOVE THIS LOG
     // console.log("Buy triggerd, ", signer.address)
     //buyAmount how much are we going to pay for example 0.1 BNB
@@ -118,6 +116,7 @@ const buyToken = async (provider, signer, tokenContract, gasLimit, gasPrices, to
     // console.log(`gasPrice: ${gasPrices}`)
     // console.log("actual price ", ethers.utils.formatEther(gasPrices))
     let tx;
+    let result = true;
     //}
     try {
         const nonce = await provider.getTransactionCount(PAN_ROUTER_ADDRESS)
@@ -134,31 +133,35 @@ const buyToken = async (provider, signer, tokenContract, gasLimit, gasPrices, to
                 gasPrice: gasPrices,
             }
         );
-        tx = tx_inner;
+        tx = await tx_inner.wait();
         // console.log(`outPuttx: ${tx_inner}`)
 
     } catch (e) {
+        result = false;
         console.log("txError", e)
     }
-    console.log(`outPuttx1: ${tx.hash}`)
-    const receipts = await provider
-        .waitForTransaction(tx.hash, 1, 150000)
-        .then(() => {
-            // console.log(`Transaction https://bscscan.com/tx/${tx.hash} mined, status success`);
-        });
+
+    console.log(`outPuttx1: ${tx?.transactionHash}`)
+    return result;
+
+    // const receipts = await provider
+    //     .waitForTransaction(tx.hash, 1, 150000)
+    //     .then(() => {
+    //         // console.log(`Transaction https://bscscan.com/tx/${tx.hash} mined, status success`);
+    //     });
 
 
-    const receipt = await tx.wait();
-    if (receipt && receipt.blockNumber && receipt.status === 1) { // 0 - failed, 1 - success
-        console.log(`Transaction https://bscscan.com/tx/${receipt.transactionHash} mined, status success`);
-    } else if (receipt && receipt.blockNumber && receipt.status === 0) {
-        console.log(`Transaction https://bscscan.com/tx/${receipt.transactionHash} mined, status failed`);
-    } else {
-        console.log(`Transaction https://bscscan.com/tx/${receipt.transactionHash} not mined`);
-    }
+    // const receipt = await tx.wait();
+    // if (receipt && receipt.blockNumber && receipt.status === 1) { // 0 - failed, 1 - success
+    //     console.log(`Transaction https://bscscan.com/tx/${receipt.transactionHash} mined, status success`);
+    // } else if (receipt && receipt.blockNumber && receipt.status === 0) {
+    //     console.log(`Transaction https://bscscan.com/tx/${receipt.transactionHash} mined, status failed`);
+    // } else {
+    //     console.log(`Transaction https://bscscan.com/tx/${receipt.transactionHash} not mined`);
+    // }
 }
 const sellToken = async (customRpcProvider, account, tokenAddress, gasLimit, gasPrice, value = 50) => {
-    sellFlag = true
+    // sellFlag = true
     // const sellTokenContract = new ethers.Contract(tokenContract, swapAbi, account)
     const accountAddress = account.address
 
@@ -168,15 +171,15 @@ const sellToken = async (customRpcProvider, account, tokenAddress, gasLimit, gas
     const tokenBalanceInWei = await sellTokenContract.balanceOf(accountAddress);
     const tokenBalance = parseFloat(ethers.utils.formatEther(tokenBalanceInWei))
 
-    console.log('token balance in wei: ', tokenBalanceInWei)
+    // console.log('token balance in wei: ', tokenBalanceInWei)
     console.log('sell token balance ethers: ', ethers.utils.formatEther(tokenBalanceInWei))
-    console.log('sell token balance: ', tokenBalance)
-    console.log('expression: ', (tokenBalance * value) / 100)
+    // console.log('sell token balance: ', tokenBalance)
+    // console.log('expression: ', (tokenBalance * value) / 100)
 
     const amountIn = ethers.utils.parseUnits(((tokenBalance * value) / 100).toString(), 'ether')
     const amounts = await router(account).getAmountsOut(amountIn, [tokenAddress, BNB_CONTRACT]);
     const amount_token = ethers.utils.formatEther(amounts[1])
-    const amountOut1 = (Math.round(parseFloat(amount_token) * 0.95)).toString()
+    const amountOut1 = (Math.round(parseFloat(amount_token) * 0.80)).toString()
     const amountOutMin = ethers.utils.parseUnits(amountOut1, 'wei') 
 
     // if (parseInt(slippage) !== 0) {
@@ -184,14 +187,22 @@ const sellToken = async (customRpcProvider, account, tokenAddress, gasLimit, gas
     // } else {
     //     amountOutMin = amounts[1]
     // }
+    let approve, receipt_approve;
 
-    const approve = await sellTokenContract.approve(PAN_ROUTER_ADDRESS, amountIn)
-    const receipt_approve = await approve.wait();
+    try {
+        approve = await sellTokenContract.approve(PAN_ROUTER_ADDRESS, tokenBalanceInWei)
+        receipt_approve = await approve.wait();
+        
+    } catch (error) {
+        console.log("Err: in approve, ", error);
+        return;
+    }
+
     if (receipt_approve && receipt_approve.blockNumber && receipt_approve.status === 1) {
         console.log(`sell Approved https://bscscan.com/tx/${receipt_approve.transactionHash}`);
-        let swap_txn;
+
         try {
-            swap_txn = await contract.swapExactTokensForETHSupportingFeeOnTransferTokens(
+            const estimateGasLimit = await router(customRpcProvider).connect(account).estimateGas.swapExactTokensForETHSupportingFeeOnTransferTokens(
                 amountIn, amountOutMin,
                 [tokenAddress, BNB_CONTRACT],
                 accountAddress,
@@ -201,20 +212,33 @@ const sellToken = async (customRpcProvider, account, tokenAddress, gasLimit, gas
                     'gasPrice': gasPrice,
                 }
             )
+            const gasP = await customRpcProvider.getGasPrice() 
+            const tx = await router(customRpcProvider).connect(account).swapExactTokensForETHSupportingFeeOnTransferTokens(
+                amountIn, amountOutMin,
+                [tokenAddress, BNB_CONTRACT],
+                accountAddress,
+                (Date.now() + 1000 * 60 * 10),
+                {
+                    'gasLimit': estimateGasLimit,
+                    'gasPrice': gasP,
+                }
+            )
+            const receipt = await tx.wait();
+            console.log("Token sold: ", receipt?.transactionHash)
         } catch (error) {
+            console.log(error)
             console.log("ERR: in sell token");
         }
-        const receipt = await swap_txn.wait();
-        if (receipt && receipt.blockNumber && receipt.status === 1) { // 0 - failed, 1 - success
-            console.log(`sell Transaction https://bscscan.com/tx/${receipt.transactionHash} mined, status success`);
-        } else if (receipt && receipt.blockNumber && receipt.status === 0) {
-            console.log(`sell Transaction https://bscscan.com/tx/${receipt.transactionHash} mined, status failed`);
-        } else {
-            console.log(`sell Transaction https://bscscan.com/tx/${receipt.transactionHash} not mined`);
-        }
+
+        // if (receipt && receipt.blockNumber && receipt.status === 1) { // 0 - failed, 1 - success
+        //     console.log(`sell Transaction https://bscscan.com/tx/${receipt.transactionHash} mined, status success`);
+        // } else if (receipt && receipt.blockNumber && receipt.status === 0) {
+        //     console.log(`sell Transaction https://bscscan.com/tx/${receipt.transactionHash} mined, status failed`);
+        // } else {
+        //     console.log(`sell Transaction https://bscscan.com/tx/${receipt.transactionHash} not mined`);
+        // }
     }
-    buyFlag = false
-    sellFlag =false 
+    // sellFlag =false 
 }
 
 var init = async function () {
@@ -229,7 +253,6 @@ var init = async function () {
     //const customWsProvider = new ethers.providers.JsonRpcProvider(wss);
     const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, customWsProvider);
     const rpcWallet = new ethers.Wallet(process.env.PRIVATE_KEY, customRpcProvider);
-    rpcWallet.getNon
     const signer = wallet.connect(customWsProvider)
     console.log("using rpc signer: ", signer.getTransactionCount())
 
@@ -238,6 +261,7 @@ var init = async function () {
         'function swapExactETHForTokensSupportingFeeOnTransferTokens(uint256 amountOutMin,address[] calldata path,address to,uint256 deadline)'])
     // console.log("hi")
     console.log("Block: ", await customWsProvider.getBlockNumber())
+    let tokenStack = []
     
 
     customWsProvider.on("pending", async (tx) => {
@@ -250,7 +274,8 @@ var init = async function () {
                 const value = web3.utils.fromWei(transaction.value.toString())
                 const gasPrice = web3.utils.fromWei(transaction.gasPrice.toString())
                 const gasLimit = web3.utils.fromWei(transaction.gasLimit.toString())
-                console.log(`Transaction:${transaction.hash} Worth: ${value}`)
+                // console.log(`Transaction:${transaction.hash} Worth: ${value}`)
+                console.log("...")
                 // for example we will be only showing transaction that are higher than 30 bnb
                 if (value > 0.00001) {
                     // console.log("value : ", value);
@@ -264,22 +289,22 @@ var init = async function () {
                     try {
 
                         result = iface.decodeFunctionData('swapExactETHForTokens', transaction.data)
-                        console.log("loop for swapExactETHForTokens")
+                        // console.log("loop for swapExactETHForTokens")
                     } catch (error) {
                         try {
                             result = iface.decodeFunctionData('swapExactETHForTokensSupportingFeeOnTransferTokens', transaction.data)
-                            console.log("loop for swapExactETHForTokens")
+                            // console.log("loop for swapExactETHForTokens")
                         } catch (error) {
                             try {
                                 result = iface.decodeFunctionData('swapETHForExactTokens', transaction.data)
-                                console.log("loop for swapExactETHForTokens")
+                                // console.log("loop for swapExactETHForTokens")
                             } catch (error) {
                                 console.log(`Transaction ${transaction} final err : ${error}`);
                                 console.log("loop for swapExactETHForTokens")
                             }
                         }
                     }
-                    if (result.length > 0) {
+                    if (result.length > 0 ) {
                         // console.log(`Result is ${result}`)
                         let tokenAddress = ""
                         if (result[1].length > 0) {
@@ -298,18 +323,24 @@ var init = async function () {
                                 // console.log(` ${tokenAddress} - ${tokenDecimal} token decimal point is not 18....`)
                                 return
                             }
+
+                            // console.log("LOG: ", tokenStack.includes(tokenAddress))
+                            if(tokenStack.includes(tokenAddress)) return;
+
+                            tokenStack.push(tokenAddress)
                             
 
-                            // handle buy & sell
-                            if(buyFlag !== true) {
-                                console.log("going to buy");
-                                await buyToken(customRpcProvider, rpcWallet, tokenAddress, transaction.gasLimit, buyGasPrice, parseInt(tokenDecimal))
-                            }
+                            console.log("going to buy, ", tokenAddress);
+                            let res = await buyToken(customRpcProvider, rpcWallet, tokenAddress, transaction.gasLimit, buyGasPrice, parseInt(tokenDecimal))
 
-                            if(sellFlag !== true && buyFlag === true) {
-                                console.log("going to sell the token");
-                                await sellToken(customRpcProvider, rpcWallet, tokenAddress, transaction.gasLimit, sellGasPrice)
+                            if (!res) {
+                                console.log("not going to sell..., ", tokenAddress)
+                                return
                             }
+                            console.log("going to sell, ", tokenAddress);
+                            await sellToken(customRpcProvider, rpcWallet, tokenAddress, transaction.gasLimit, sellGasPrice)
+
+                            tokenStack = tokenStack.filter((token) => token !== tokenAddress)
                         }
                     }
                 }
