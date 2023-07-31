@@ -1,6 +1,8 @@
 require('dotenv').config()
 
 const ethers = require('ethers')
+const axios = require('axios')
+const moment = require('moment')
 const router_abi = require('./abi/routerABI.json')
 const erc20_abi = require('./abi/erc20.json')
 
@@ -27,10 +29,31 @@ function erc20(tokenAddress, signerOrProvider) {
   return new ethers.Contract(tokenAddress, erc20_abi, signerOrProvider)
 }
 
+// get timestamp of token
+async function get_token_creation_time(token_address) {
+  // let dateString = moment.unix('1644915012').add(1, 'days').format('MM/DD/YYYY')
+  console.log('[API]: Loading...')
+  const res = await axios.get(
+    `https://api.bscscan.com/api?module=account&action=txlist&address=${token_address}&startblock=0&endblock=99999999&page=1&offset=10&sort=asc&apikey=IH25T1JC2I8S6AT4577MAU9VV2P7EE56NZ`
+  )
+  console.log('[API]: ', res.status)
+
+  const current_time = moment().valueOf()
+  const token_creation_time = moment
+    .unix(res?.data?.result[0]?.timeStamp)
+    .add(1, 'days')
+    .valueOf()
+
+  if (current_time > token_creation_time) {
+    console.log('[LOG]: passed')
+    return true
+  }
+
+  return false
+}
+
 async function buyToken(provider, signer, token_address, gasLimit, gasPrices) {
   const buyAmount = 0.001
-  //   const slippage = 25
-  //   let amountOutMin = 0
   const amountIn = ethers.utils.parseUnits(buyAmount.toString(), 'ether')
   const amounts = await router(provider).getAmountsOut(amountIn, [
     BNB_CONTRACT,
@@ -207,6 +230,9 @@ const init = async function () {
           if (result.length > 0) {
             if (result[1].length > 0) {
               const tokenAddress = result[1][1]
+              let test_result = await get_token_creation_time(tokenAddress)
+              if (!test_result) return
+
               const buyGasPrice = calculate_gas_price(
                 'buy',
                 transaction.gasPrice
