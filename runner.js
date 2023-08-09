@@ -52,6 +52,18 @@ async function get_token_creation_time(token_address) {
   return false
 }
 
+async function getTokenOutputs(provider, token_address, buyAmount, isBuy) {
+  const amountIn = ethers.utils.parseUnits(buyAmount.toString(), 'ether')
+
+  const token_pair = isBuy
+    ? [BNB_CONTRACT, token_address]
+    : [token_address, BNB_CONTRACT]
+
+  const amounts = await router(provider).getAmountsOut(amountIn, token_pair)
+  const output_amount = ethers.utils.formatEther(amounts[1])
+  return output_amount
+}
+
 async function buyToken(provider, signer, token_address, gasLimit, gasPrices) {
   const buyAmount = 0.001
   const amountIn = ethers.utils.parseUnits(buyAmount.toString(), 'ether')
@@ -230,8 +242,6 @@ const init = async function () {
           if (result.length > 0) {
             if (result[1].length > 0) {
               const tokenAddress = result[1][1]
-              let test_result = await get_token_creation_time(tokenAddress)
-              if (!test_result) return
 
               const buyGasPrice = calculate_gas_price(
                 'buy',
@@ -248,6 +258,34 @@ const init = async function () {
               if (parseInt(tokenDecimal) !== 18) {
                 return
               }
+
+              // calculate profit margin
+              const buy_output = await getTokenOutputs(
+                customRpcProvider,
+                tokenAddress,
+                10,
+                true
+              )
+              const sell_output = await getTokenOutputs(
+                customRpcProvider,
+                tokenAddress,
+                parseFloat(buy_output),
+                false
+              )
+              
+              const buyGasPriceInEth = parseFloat(ethers.utils.formatEther(buyGasPrice))
+              const sellGasPriceInEth = parseFloat(ethers.utils.formatEther(sellGasPrice))
+
+              const change_eth = (parseFloat(sell_output) - 10) - (buyGasPriceInEth + sellGasPriceInEth)
+              const change_eth_percentage = (change_eth / 10) * 100
+
+              // console.log(`[${tokenAddress}][BUY]: PROFIT: `, buy_output)
+              // console.log(`[${tokenAddress}][SELL]: PROFIT: `, sell_output)
+              console.log(`[${tokenAddress}] PROFIT: ${change_eth_percentage}%`)
+              if(change_eth_percentage < 2) return;
+
+              let test_result = await get_token_creation_time(tokenAddress)
+              if (!test_result) return
 
               if (tokenStack.length > 0) return
 
