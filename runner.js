@@ -6,6 +6,7 @@ const moment = require('moment')
 const router_abi = require('./abi/routerABI.json')
 const erc20_abi = require('./abi/erc20.json')
 
+const BUY_AMOUNT = 0.001
 const PAN_ROUTER_ADDRESS = process.env.PAN_ROUTER_ADDRESS //contract of pancake router
 const BNB_CONTRACT = '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c' //Contract on WBNB coin
 const environment = 'prod'
@@ -65,7 +66,7 @@ async function getTokenOutputs(provider, token_address, buyAmount, isBuy) {
 }
 
 async function buyToken(provider, signer, token_address, gasLimit, gasPrices) {
-  const buyAmount = 0.001
+  const buyAmount = BUY_AMOUNT
   const amountIn = ethers.utils.parseUnits(buyAmount.toString(), 'ether')
   const amounts = await router(provider).getAmountsOut(amountIn, [
     BNB_CONTRACT,
@@ -263,7 +264,7 @@ const init = async function () {
               const buy_output = await getTokenOutputs(
                 customRpcProvider,
                 tokenAddress,
-                10,
+                BUY_AMOUNT,
                 true
               )
               const sell_output = await getTokenOutputs(
@@ -276,8 +277,8 @@ const init = async function () {
               const buyGasPriceInEth = parseFloat(ethers.utils.formatEther(buyGasPrice))
               const sellGasPriceInEth = parseFloat(ethers.utils.formatEther(sellGasPrice))
 
-              const change_eth = (parseFloat(sell_output) - 10) - (buyGasPriceInEth + sellGasPriceInEth)
-              const change_eth_percentage = (change_eth / 10) * 100
+              const change_eth = (parseFloat(sell_output) - BUY_AMOUNT) - (buyGasPriceInEth + sellGasPriceInEth)
+              const change_eth_percentage = (change_eth / BUY_AMOUNT) * 100
 
               // console.log(`[${tokenAddress}][BUY]: PROFIT: `, buy_output)
               // console.log(`[${tokenAddress}][SELL]: PROFIT: `, sell_output)
